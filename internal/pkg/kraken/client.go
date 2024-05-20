@@ -1,5 +1,17 @@
 package kraken
 
+import (
+	"net/http"
+
+	"github.com/gorilla/websocket"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+)
+
+const (
+	krakenWsURL = "wss://ws.kraken.com/v2"
+)
+
 type Level1Request struct {
 	Method string `json:"method"`
 	Params struct {
@@ -25,4 +37,49 @@ type Level1Response struct {
 		Change    float64 `json:"change"`
 		ChangePct float64 `json:"change_pct"`
 	} `json:"data"`
+}
+
+type Client struct {
+	logger logrus.FieldLogger
+	conn   *websocket.Conn
+}
+
+func NewClient(logger logrus.FieldLogger) *Client {
+	c := &Client{
+		logger: logger.WithFields(logrus.Fields{
+			"comp": "kraken-client",
+		}),
+	}
+
+	return c
+}
+
+func (c *Client) connect() error {
+	c.logger.WithFields(logrus.Fields{
+		"action":   "connect",
+		"endpoint": krakenWsURL,
+	}).
+		Info("connecting")
+
+	h := http.Header{}
+
+	//nolint:bodyclose
+	conn, _, err := websocket.DefaultDialer.Dial(krakenWsURL, h)
+	if err != nil {
+		return errors.Wrap(err, "error connecting to websocket")
+	}
+
+	c.conn = conn
+
+	c.conn.SetPongHandler(func(msg string) error {
+		c.logger.WithFields(logrus.Fields{"action": "pong", "msg": msg}).
+			Debug("received pong")
+
+		return nil
+	})
+
+	c.logger.WithFields(logrus.Fields{"action": "connect"}).
+		Info("success")
+
+	return nil
 }
