@@ -3,9 +3,15 @@ package kraken
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -64,6 +70,7 @@ type level1Response struct {
 type Client struct {
 	logger      logrus.FieldLogger
 	apiKey      string
+	apiSecret   string
 	token       string
 	tokenExpiry time.Time
 	conn        *websocket.Conn
@@ -71,12 +78,13 @@ type Client struct {
 
 var ErrAuthFailed = errors.New("authentication failed")
 
-func NewClient(ctx context.Context, logger logrus.FieldLogger, apiKey string) *Client {
+func NewClient(ctx context.Context, logger logrus.FieldLogger, apiKey string, apiSecret string) *Client {
 	c := &Client{
 		logger: logger.WithFields(logrus.Fields{
 			"comp": "kraken-client",
 		}),
-		apiKey: apiKey,
+		apiKey:    apiKey,
+		apiSecret: apiSecret,
 	}
 
 	err := c.connect(ctx)
@@ -88,14 +96,25 @@ func NewClient(ctx context.Context, logger logrus.FieldLogger, apiKey string) *C
 }
 
 func (c *Client) authenticate(ctx context.Context) error {
+	nonce := time.Now().Unix()
+
 	reqBody := authRequest{
-		Nonce: time.Now().Unix(),
+		Nonce: nonce,
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		return errors.Wrap(err, "error marshaling request body")
 	}
+
+	b64DecodedSecret, err := base64.StdEncoding.DecodeString(c.apiSecret)
+	if err != nil {
+		return errors.Wrap(err, "error decoding secret")
+	}
+
+	signature := getKrakenSignature(krakenAuthURL,
+		url.Values{"nonce": {fmt.Sprintf("%d", nonce)}},
+		b64DecodedSecret)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, krakenAuthURL, bytes.NewReader(bodyBytes))
 	if err != nil {
@@ -105,7 +124,7 @@ func (c *Client) authenticate(ctx context.Context) error {
 	req.Header.Add("Content-Type", contentApplicationJSON)
 	req.Header.Add("Accept", contentApplicationJSON)
 	req.Header.Add("API-Key", c.apiKey)
-	req.Header.Add("API-Sign", c.apiKey)
+	req.Header.Add("API-Sign", signature)
 
 	httpClient := http.Client{
 		Timeout: httpTimeout,
@@ -175,4 +194,15 @@ func (c *Client) connect(ctx context.Context) error {
 		Info("success")
 
 	return nil
+}
+
+func getKrakenSignature(urlPath string, values url.Values, secret []byte) string {
+	sha := sha256.New()
+	sha.Write([]byte(values.Get("nonce") + values.Encode()))
+	shaSum := sha.Sum(nil)
+
+	mac := hmac.New(sha512.New, secret)
+	mac.Write(append([]byte(urlPath), shaSum...))
+
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
