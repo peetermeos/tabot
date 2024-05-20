@@ -1,9 +1,6 @@
 run:
   timeout: 5m
   allow-parallel-runners: true
-  skip-dirs:
-    - vendor
-    - implementation/vehicle/tesla/internal/vehiclecommands
 
 linters:
   disable-all: true
@@ -20,14 +17,13 @@ linters:
     - errcheck
     - errchkjson
     - errname
-    - execinquery
     - exportloopref
     - forbidigo
     - gci
     - goconst
     - gocritic
     - gocyclo
-    - goerr113
+    - err113
     - gofmt
     - gofumpt
     - goheader
@@ -37,7 +33,6 @@ linters:
     - goprintffuncname
     - gosimple
     - govet
-    - grouper
     - importas
     - ineffassign
     - makezero
@@ -66,7 +61,7 @@ linters:
     - forcetypeassert
     - gochecknoinits
     - gocognit
-    - gomnd
+    - mnd
     - gosec
     - interfacebloat
     - loggercheck
