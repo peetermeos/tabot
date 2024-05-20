@@ -10,6 +10,7 @@ import (
 type Config struct {
 	LogLevel  string `env:"LOGLEVEL"`
 	AWSRegion string `env:"AWS_REGION"`
+	KrakenKey string `env:"KRAKEN_API_KEY"`
 }
 
 var ErrFieldNotDefined = errors.New("environment variable name tag for field is not defined")
