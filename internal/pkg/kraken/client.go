@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/peetermeos/tabot/internal/app/service"
 	"io"
 	"net/http"
 	"net/url"
@@ -93,6 +94,21 @@ func NewClient(ctx context.Context, logger logrus.FieldLogger, apiKey string, ap
 	}
 
 	return c
+}
+
+func (c *Client) Stream(ctx context.Context) <-chan service.Tick {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *Client) Subscribe(symbol string) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *Client) Unsubscribe(symbol string) error {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (c *Client) authenticate(ctx context.Context) error {

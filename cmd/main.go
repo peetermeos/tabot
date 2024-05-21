@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/peetermeos/tabot/internal/app/service"
 	"os"
 
 	"github.com/peetermeos/tabot/config"
@@ -22,5 +23,13 @@ func main() {
 
 	krakenClient := kraken.NewClient(ctx, tabotLogger, cfg.KrakenKey, cfg.KrakenSecret)
 
-	tabotLogger.Info(krakenClient)
+	botInput := service.BotInput{
+		Logger:     tabotLogger,
+		MarketData: krakenClient,
+		Execution:  krakenClient,
+	}
+
+	tabot := service.NewTriangleBot(botInput)
+
+	tabot.Run(ctx)
 }
