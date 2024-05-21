@@ -1,7 +1,6 @@
 package kraken
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -13,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -22,16 +22,14 @@ import (
 
 const (
 	contentApplicationJSON = "application/json"
+	contentURLEncoded      = "application/x-www-form-urlencoded"
 
-	krakenWsURL   = "wss://ws.kraken.com/v2"
-	krakenAuthURL = "https://api.kraken.com/0/private/GetWebSocketsToken"
+	krakenWsURL    = "wss://ws.kraken.com/v2"
+	krakenBaseURL  = "https://api.kraken.com"
+	krakenAuthPath = "/0/private/GetWebSocketsToken"
 
 	httpTimeout = 10 * time.Second
 )
-
-type authRequest struct {
-	Nonce int64 `json:"nonce"`
-}
 
 type authResponse struct {
 	Error  []interface{} `json:"error"`
@@ -111,33 +109,31 @@ func (c *Client) Unsubscribe(symbol string) error {
 	panic("implement me")
 }
 
+// authenticate sends a request to Kraken to authenticate the client for websocket
+// communication. The client's API key and secret are used to sign the request.
 func (c *Client) authenticate(ctx context.Context) error {
-	nonce := time.Now().Unix()
+	nonce := time.Now().UnixMilli()
 
-	reqBody := authRequest{
-		Nonce: nonce,
-	}
-
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return errors.Wrap(err, "error marshaling request body")
-	}
+	reqBody := url.Values{}
+	reqBody.Set("nonce", fmt.Sprintf("%d", nonce))
 
 	b64DecodedSecret, err := base64.StdEncoding.DecodeString(c.apiSecret)
 	if err != nil {
 		return errors.Wrap(err, "error decoding secret")
 	}
 
-	signature := getKrakenSignature(krakenAuthURL,
+	signature := getKrakenSignature(krakenAuthPath,
 		url.Values{"nonce": {fmt.Sprintf("%d", nonce)}},
 		b64DecodedSecret)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, krakenAuthURL, bytes.NewReader(bodyBytes))
+	urlStr := krakenBaseURL + krakenAuthPath
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, strings.NewReader(reqBody.Encode()))
 	if err != nil {
 		return errors.Wrap(err, "error creating request")
 	}
 
-	req.Header.Add("Content-Type", contentApplicationJSON)
+	req.Header.Add("Content-Type", contentURLEncoded)
 	req.Header.Add("Accept", contentApplicationJSON)
 	req.Header.Add("API-Key", c.apiKey)
 	req.Header.Add("API-Sign", signature)
@@ -155,7 +151,7 @@ func (c *Client) authenticate(ctx context.Context) error {
 
 	var unmarshalled authResponse
 
-	bodyBytes, err = io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return errors.Wrap(err, "error reading response body")
 	}
