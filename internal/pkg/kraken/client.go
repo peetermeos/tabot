@@ -40,11 +40,13 @@ type authResponse struct {
 }
 
 type level1Request struct {
-	Method string `json:"method"`
-	Params struct {
-		Channel string   `json:"channel"`
-		Symbol  []string `json:"symbol"`
-	} `json:"params"`
+	Method string              `json:"method"`
+	Params level1RequestParams `json:"params"`
+}
+
+type level1RequestParams struct {
+	Channel string   `json:"channel"`
+	Symbol  []string `json:"symbol"`
 }
 
 type level1Response struct {
@@ -95,18 +97,80 @@ func NewClient(ctx context.Context, logger logrus.FieldLogger, apiKey string, ap
 }
 
 func (c *Client) Stream(ctx context.Context) <-chan service.Tick {
-	//TODO implement me
-	panic("implement me")
+	tickCh := make(chan service.Tick)
+
+	go func() {
+		defer close(tickCh)
+
+		if c.conn == nil {
+			err := c.connect(ctx)
+			if err != nil {
+				c.logger.WithError(err).Error("error connecting")
+
+				return
+			}
+		}
+
+		for {
+			msgType, payload, err := c.conn.ReadMessage()
+			if err != nil {
+				c.logger.WithError(err).Error("error reading message from websocket")
+
+				return
+			}
+
+			c.logger.WithFields(logrus.Fields{
+				"action":  "read_message",
+				"type":    msgType,
+				"payload": string(payload),
+			}).Info("received message")
+
+			select {
+			case <-ctx.Done():
+				err = c.conn.Close()
+				if err != nil {
+					c.logger.WithError(err).Error("error closing websocket connection")
+				}
+
+				return
+			}
+		}
+	}()
+
+	return tickCh
 }
 
 func (c *Client) Subscribe(symbol string) error {
-	//TODO implement me
-	panic("implement me")
+	if c.conn == nil {
+		err := c.connect(context.Background())
+		if err != nil {
+			return errors.Wrap(err, "error connecting")
+		}
+	}
+
+	req := level1Request{
+		Method: "subscribe",
+		Params: level1RequestParams{
+			Channel: "ticker",
+			Symbol:  []string{symbol},
+		},
+	}
+
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return errors.Wrap(err, "error marshalling request")
+	}
+
+	err = c.conn.WriteMessage(websocket.TextMessage, reqBody)
+	if err != nil {
+		return errors.Wrap(err, "error writing message to websocket")
+	}
+
+	return nil
 }
 
-func (c *Client) Unsubscribe(symbol string) error {
-	//TODO implement me
-	panic("implement me")
+func (c *Client) Unsubscribe(_ string) error {
+	return nil
 }
 
 // authenticate sends a request to Kraken to authenticate the client for websocket
