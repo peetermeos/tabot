@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"github.com/peetermeos/tabot/internal/app/service"
 	"os"
 
 	"github.com/peetermeos/tabot/config"
+	"github.com/peetermeos/tabot/internal/app/service"
 	"github.com/peetermeos/tabot/internal/pkg/kraken"
 	"github.com/sirupsen/logrus"
 )

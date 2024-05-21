@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/peetermeos/tabot/internal/app/service"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/peetermeos/tabot/internal/app/service"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -112,7 +112,7 @@ func (c *Client) Stream(ctx context.Context) <-chan service.Tick {
 		}
 
 		for {
-			msgType, payload, err := c.conn.ReadMessage()
+			_, payload, err := c.conn.ReadMessage()
 			if err != nil {
 				c.logger.WithError(err).Error("error reading message from websocket")
 
@@ -121,9 +121,32 @@ func (c *Client) Stream(ctx context.Context) <-chan service.Tick {
 
 			c.logger.WithFields(logrus.Fields{
 				"action":  "read_message",
-				"type":    msgType,
 				"payload": string(payload),
-			}).Info("received message")
+			}).Debug("received message")
+
+			var unmarshalled level1Response
+
+			err = json.Unmarshal(payload, &unmarshalled)
+			if err != nil {
+				c.logger.WithFields(logrus.Fields{
+					"action":  "unmarshal_message",
+					"payload": string(payload),
+				}).WithError(err).Error("error unmarshalling message")
+
+				continue
+			}
+
+			if unmarshalled.Channel == "ticker" {
+				for _, data := range unmarshalled.Data {
+					tickCh <- service.Tick{
+						Symbol: data.Symbol,
+						Bid:    data.Bid,
+						BidQty: data.BidQty,
+						Ask:    data.Ask,
+						AskQty: data.AskQty,
+					}
+				}
+			}
 
 			select {
 			case <-ctx.Done():
@@ -133,6 +156,7 @@ func (c *Client) Stream(ctx context.Context) <-chan service.Tick {
 				}
 
 				return
+			default:
 			}
 		}
 	}()
