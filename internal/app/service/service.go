@@ -51,10 +51,6 @@ func NewTriangleBot(input BotInput) *TriangleBot {
 }
 
 func (t *TriangleBot) Run(ctx context.Context) {
-	// TODO: Just a placeholder for now
-	//   we will be constructing triangle legs via
-	//   matrix multiplication of exchange rates
-
 	dim := len(t.symbols)
 	exch := mat.NewDense(dim, dim, nil)
 
@@ -62,8 +58,6 @@ func (t *TriangleBot) Run(ctx context.Context) {
 	for i := 0; i < dim; i++ {
 		exch.Set(i, i, 1)
 	}
-
-	// TODO: Use Kronecker product to construct triangle legs
 
 	dataStream := t.marketData.Stream(ctx)
 
@@ -89,8 +83,50 @@ func (t *TriangleBot) Run(ctx context.Context) {
 			}).Debug("received tick")
 
 		exch.Set(index(base, t.symbols), index(instrument, t.symbols), tick.Bid)
+		exch.Set(index(instrument, t.symbols), index(base, t.symbols), 1/tick.Ask)
 
-		fmt.Println(exch)
+		//fa := mat.Formatted(exch, mat.Prefix("    "), mat.Squeeze())
+		//
+		//// and then print with and without zero value elements.
+		//fmt.Printf("rates:\nA = % .4f\n\n", fa)
+
+		usdBtcEth := exch.At(index("BTC", t.symbols), index("USD", t.symbols)) *
+			exch.At(index("ETH", t.symbols), index("BTC", t.symbols))
+		ethUsd := exch.At(index("USD", t.symbols), index("ETH", t.symbols))
+
+		usdBtcSol := exch.At(index("BTC", t.symbols), index("USD", t.symbols)) *
+			exch.At(index("SOL", t.symbols), index("BTC", t.symbols))
+		solUsd := exch.At(index("USD", t.symbols), index("SOL", t.symbols))
+
+		usdEthSol := exch.At(index("ETH", t.symbols), index("USD", t.symbols)) *
+			exch.At(index("SOL", t.symbols), index("ETH", t.symbols))
+
+		usdLtcEth := exch.At(index("LTC", t.symbols), index("USD", t.symbols)) *
+			exch.At(index("ETH", t.symbols), index("LTC", t.symbols))
+
+		t.logger.WithFields(logrus.Fields{
+			"usdBtcEth": fmt.Sprintf("%.4f", 1/usdBtcEth),
+			"ethUsd":    fmt.Sprintf("%.4f", ethUsd),
+			"delta":     fmt.Sprintf("%.4f", ethUsd-1/usdBtcEth),
+		}).Info("calculated rates for USD/BTC/ETH")
+
+		t.logger.WithFields(logrus.Fields{
+			"usdBtcSol": fmt.Sprintf("%.4f", 1/usdBtcSol),
+			"solUsd":    fmt.Sprintf("%.4f", solUsd),
+			"delta":     fmt.Sprintf("%.4f", solUsd-1/usdBtcSol),
+		}).Info("calculated rates for USD/BTC/SOL")
+
+		t.logger.WithFields(logrus.Fields{
+			"usdEthSol": fmt.Sprintf("%.4f", 1/usdEthSol),
+			"solUsd":    fmt.Sprintf("%.4f", solUsd),
+			"delta":     fmt.Sprintf("%.4f", solUsd-1/usdEthSol),
+		}).Info("calculated rates for USD/ETH/SOL")
+
+		t.logger.WithFields(logrus.Fields{
+			"usdLtcEth": fmt.Sprintf("%.4f", 1/usdLtcEth),
+			"ethUsd":    fmt.Sprintf("%.4f", ethUsd),
+			"delta":     fmt.Sprintf("%.4f", ethUsd-1/usdLtcEth),
+		}).Info("calculated rates for USD/LTC/ETH")
 	}
 }
 
