@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"gonum.org/v1/gonum/mat"
@@ -27,12 +29,14 @@ type TriangleBot struct {
 	logger     logrus.FieldLogger
 	marketData MarketDataProvider
 	trader     ExecutionProvider
+	symbols    []string
 }
 
 type BotInput struct {
 	Logger     logrus.FieldLogger
 	MarketData MarketDataProvider
 	Execution  ExecutionProvider
+	Symbols    []string
 }
 
 func NewTriangleBot(input BotInput) *TriangleBot {
@@ -40,6 +44,7 @@ func NewTriangleBot(input BotInput) *TriangleBot {
 		logger:     input.Logger.WithField("comp", "tabot"),
 		marketData: input.MarketData,
 		trader:     input.Execution,
+		symbols:    input.Symbols,
 	}
 
 	return tabot
@@ -49,23 +54,61 @@ func (t *TriangleBot) Run(ctx context.Context) {
 	// TODO: Just a placeholder for now
 	//   we will be constructing triangle legs via
 	//   matrix multiplication of exchange rates
-	zero := mat.NewDense(3, 5, nil)
 
-	t.logger.Info(zero)
+	dim := len(t.symbols)
+	exch := mat.NewDense(dim, dim, nil)
+
+	// Initialize exchange matrix with identity matrix
+	for i := 0; i < dim; i++ {
+		exch.Set(i, i, 1)
+	}
+
+	// TODO: Use Kronecker product to construct triangle legs
 
 	dataStream := t.marketData.Stream(ctx)
 
-	err := t.marketData.Subscribe("BTC/USD")
-	if err != nil {
-		t.logger.WithError(err).Error("failed to subscribe to BTC/USD")
-	}
+	for idx1 := range t.symbols {
+		for idx2 := idx1 + 1; idx2 < len(t.symbols); idx2++ {
+			ticker := fmt.Sprintf("%s/%s", t.symbols[idx2], t.symbols[idx1])
 
-	err = t.marketData.Subscribe("ETH/USD")
-	if err != nil {
-		t.logger.WithError(err).Error("failed to subscribe to ETH/USD")
+			err := t.marketData.Subscribe(ticker)
+			if err != nil {
+				t.logger.WithError(err).Errorf("failed to subscribe to %s", ticker)
+			}
+		}
 	}
 
 	for tick := range dataStream {
-		t.logger.WithField("tick", tick).Info("received tick")
+		instrument, base := parsePair(tick.Symbol)
+		t.logger.
+			WithFields(logrus.Fields{
+				"instrument": instrument,
+				"base":       base,
+				"bid":        tick.Bid,
+				"ask":        tick.Ask,
+			}).Debug("received tick")
+
+		exch.Set(index(base, t.symbols), index(instrument, t.symbols), tick.Bid)
+
+		fmt.Println(exch)
 	}
+}
+
+func index(symbol string, syms []string) int {
+	for i, s := range syms {
+		if s == symbol {
+			return i
+		}
+	}
+
+	return -1
+}
+
+func parsePair(pair string) (string, string) {
+	tickers := strings.Split(pair, "/")
+	if len(tickers) != 2 {
+		return "", ""
+	}
+
+	return tickers[0], tickers[1]
 }

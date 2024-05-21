@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/peetermeos/tabot/config"
 	"github.com/peetermeos/tabot/internal/app/service"
@@ -27,6 +28,7 @@ func main() {
 		Logger:     tabotLogger,
 		MarketData: krakenClient,
 		Execution:  krakenClient,
+		Symbols:    strings.Split(cfg.Symbols, ","),
 	}
 
 	tabot := service.NewTriangleBot(botInput)
