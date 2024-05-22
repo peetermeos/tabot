@@ -15,7 +15,16 @@ type MarketDataProvider interface {
 	Unsubscribe(symbol string) error
 }
 
-type ExecutionProvider interface{}
+type ExecutionInput struct {
+	Symbol string
+	Base   string
+	Side   string
+	Qty    float64
+}
+
+type ExecutionProvider interface {
+	Execute(ctx context.Context, input ExecutionInput) error
+}
 
 type Tick struct {
 	Symbol string

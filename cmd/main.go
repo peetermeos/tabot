@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/peetermeos/tabot/internal/pkg/mock"
 	"os"
 	"strings"
 
@@ -23,11 +24,12 @@ func main() {
 	}
 
 	krakenClient := kraken.NewClient(ctx, tabotLogger, cfg.KrakenKey, cfg.KrakenSecret)
+	mockPortfolio := mock.NewPortfolio(10000, 0.0025)
 
 	botInput := service.BotInput{
 		Logger:     tabotLogger,
 		MarketData: krakenClient,
-		Execution:  krakenClient,
+		Execution:  mockPortfolio,
 		Symbols:    strings.Split(cfg.Symbols, ","),
 	}
 
