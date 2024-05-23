@@ -94,48 +94,45 @@ func (t *TriangleBot) Run(ctx context.Context) {
 		exch.Set(index(base, t.symbols), index(instrument, t.symbols), tick.Bid)
 		exch.Set(index(instrument, t.symbols), index(base, t.symbols), 1/tick.Ask)
 
-		//fa := mat.Formatted(exch, mat.Prefix("    "), mat.Squeeze())
-		//
-		//// and then print with and without zero value elements.
-		//fmt.Printf("rates:\nA = % .4f\n\n", fa)
+		// TODO: Implement triangular arbitrage opportunity detection
+		// TODO: Execute trades
 
-		usdBtcEth := exch.At(index("BTC", t.symbols), index("USD", t.symbols)) *
-			exch.At(index("ETH", t.symbols), index("BTC", t.symbols))
-		ethUsd := exch.At(index("USD", t.symbols), index("ETH", t.symbols))
+		const capital = 1000
 
-		usdBtcSol := exch.At(index("BTC", t.symbols), index("USD", t.symbols)) *
-			exch.At(index("SOL", t.symbols), index("BTC", t.symbols))
-		solUsd := exch.At(index("USD", t.symbols), index("SOL", t.symbols))
+		// Always start at USD
+		leg1Idx := index("USD", t.symbols)
 
-		usdEthSol := exch.At(index("ETH", t.symbols), index("USD", t.symbols)) *
-			exch.At(index("SOL", t.symbols), index("ETH", t.symbols))
+		for leg2Idx := 0; leg2Idx < dim; leg2Idx++ {
+			for leg3Idx := 0; leg3Idx < dim; leg3Idx++ {
+				if leg2Idx == leg3Idx || leg2Idx == leg1Idx || leg3Idx == leg1Idx {
+					continue
+				}
 
-		usdLtcEth := exch.At(index("LTC", t.symbols), index("USD", t.symbols)) *
-			exch.At(index("ETH", t.symbols), index("LTC", t.symbols))
+				leg1 := t.symbols[leg1Idx]
+				leg2 := t.symbols[leg2Idx]
+				leg3 := t.symbols[leg3Idx]
 
-		t.logger.WithFields(logrus.Fields{
-			"usdBtcEth": fmt.Sprintf("%.4f", 1/usdBtcEth),
-			"ethUsd":    fmt.Sprintf("%.4f", ethUsd),
-			"delta":     fmt.Sprintf("%.4f", ethUsd-1/usdBtcEth),
-		}).Info("calculated rates for USD/BTC/ETH")
+				if leg1 != instrument && leg2 != instrument && leg3 != instrument {
+					continue
+				}
 
-		t.logger.WithFields(logrus.Fields{
-			"usdBtcSol": fmt.Sprintf("%.4f", 1/usdBtcSol),
-			"solUsd":    fmt.Sprintf("%.4f", solUsd),
-			"delta":     fmt.Sprintf("%.4f", solUsd-1/usdBtcSol),
-		}).Info("calculated rates for USD/BTC/SOL")
+				leg1Leg2Leg3 := exch.At(leg2Idx, leg1Idx) * exch.At(leg3Idx, leg2Idx)
+				leg3Leg1 := exch.At(leg1Idx, leg3Idx)
 
-		t.logger.WithFields(logrus.Fields{
-			"usdEthSol": fmt.Sprintf("%.4f", 1/usdEthSol),
-			"solUsd":    fmt.Sprintf("%.4f", solUsd),
-			"delta":     fmt.Sprintf("%.4f", solUsd-1/usdEthSol),
-		}).Info("calculated rates for USD/ETH/SOL")
+				if leg1Leg2Leg3 == 0 || leg3Leg1 == 0 {
+					continue
+				}
 
-		t.logger.WithFields(logrus.Fields{
-			"usdLtcEth": fmt.Sprintf("%.4f", 1/usdLtcEth),
-			"ethUsd":    fmt.Sprintf("%.4f", ethUsd),
-			"delta":     fmt.Sprintf("%.4f", ethUsd-1/usdLtcEth),
-		}).Info("calculated rates for USD/LTC/ETH")
+				t.logger.WithFields(logrus.Fields{
+					"leg1":         leg1,
+					"leg2":         leg2,
+					"leg3":         leg3,
+					"leg1Leg2Leg3": fmt.Sprintf("%.4f", capital*leg1Leg2Leg3),
+					"leg3Leg1":     fmt.Sprintf("%.4f", capital*(1/leg3Leg1)),
+					"delta usd":    fmt.Sprintf("%.4f", capital*(1/leg3Leg1-leg1Leg2Leg3)*leg3Leg1),
+				}).Infof("calculated rates for %s/%s/%s", leg1, leg2, leg3)
+			}
+		}
 	}
 }
 
