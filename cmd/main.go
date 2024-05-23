@@ -24,7 +24,7 @@ func main() {
 	}
 
 	krakenClient := kraken.NewClient(ctx, tabotLogger, cfg.KrakenKey, cfg.KrakenSecret)
-	mockPortfolio := mock.NewPortfolio(10000, 0.0025)
+	mockPortfolio := mock.NewPortfolio(10000, "USD", 0.0025)
 
 	botInput := service.BotInput{
 		Logger:     tabotLogger,

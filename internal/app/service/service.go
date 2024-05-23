@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -19,11 +20,13 @@ type ExecutionInput struct {
 	Symbol string
 	Base   string
 	Side   string
+	Rate   float64
 	Qty    float64
 }
 
 type ExecutionProvider interface {
 	Execute(ctx context.Context, input ExecutionInput) error
+	TotalCapital() float64
 }
 
 type Tick struct {
@@ -94,11 +97,6 @@ func (t *TriangleBot) Run(ctx context.Context) {
 		exch.Set(index(base, t.symbols), index(instrument, t.symbols), tick.Bid)
 		exch.Set(index(instrument, t.symbols), index(base, t.symbols), 1/tick.Ask)
 
-		// TODO: Implement triangular arbitrage opportunity detection
-		// TODO: Execute trades
-
-		const capital = 1000
-
 		// Always start at USD
 		leg1Idx := index("USD", t.symbols)
 
@@ -123,17 +121,70 @@ func (t *TriangleBot) Run(ctx context.Context) {
 					continue
 				}
 
-				t.logger.WithFields(logrus.Fields{
-					"leg1":         leg1,
-					"leg2":         leg2,
-					"leg3":         leg3,
-					"leg1Leg2Leg3": fmt.Sprintf("%.4f", capital*leg1Leg2Leg3),
-					"leg3Leg1":     fmt.Sprintf("%.4f", capital*(1/leg3Leg1)),
-					"delta usd":    fmt.Sprintf("%.4f", capital*(1/leg3Leg1-leg1Leg2Leg3)*leg3Leg1),
-				}).Infof("calculated rates for %s/%s/%s", leg1, leg2, leg3)
+				const capital = 1000
+
+				delta := capital * (1/leg3Leg1 - leg1Leg2Leg3) * leg3Leg1
+
+				if isTradeable(delta / capital) {
+					// TODO: Execute trades, make it look nicer
+
+					// Leg1
+					err := t.trader.Execute(ctx, ExecutionInput{
+						Symbol: leg2,
+						Base:   leg1,
+						Side:   "buy",
+						Rate:   1 / exch.At(leg2Idx, leg1Idx),
+					})
+					if err != nil {
+						t.logger.WithFields(logrus.Fields{
+							"leg1": leg1,
+						}).WithError(err).Error("failed to execute trade")
+					}
+					// Leg2
+					err = t.trader.Execute(ctx, ExecutionInput{
+						Symbol: leg3,
+						Base:   leg2,
+						Side:   "buy",
+						Rate:   1 / exch.At(leg3Idx, leg2Idx),
+					})
+					if err != nil {
+						t.logger.WithFields(logrus.Fields{
+							"leg2": leg2,
+						}).WithError(err).Error("failed to execute trade")
+					}
+
+					// Leg3
+					err = t.trader.Execute(ctx, ExecutionInput{
+						Symbol: leg3,
+						Base:   leg1,
+						Side:   "sell",
+						Rate:   1 / exch.At(leg3Idx, leg1Idx),
+					})
+					if err != nil {
+						t.logger.WithFields(logrus.Fields{
+							"leg3": leg3,
+						}).WithError(err).Error("failed to execute trade")
+					}
+
+					t.logger.WithFields(logrus.Fields{
+						"leg1":         leg1,
+						"leg2":         leg2,
+						"leg3":         leg3,
+						"leg1Leg2Leg3": fmt.Sprintf("%.4f", capital*leg1Leg2Leg3),
+						"leg3Leg1":     fmt.Sprintf("%.4f", capital*(1/leg3Leg1)),
+						"delta usd":    fmt.Sprintf("%.4f", delta),
+						"capital_usd":  fmt.Sprintf("%.4f", t.trader.TotalCapital()),
+					}).Infof("calculated rates for %s/%s/%s", leg1, leg2, leg3)
+				}
 			}
 		}
 	}
+}
+
+func isTradeable(delta float64) bool {
+	// TODO: Implement triangular arbitrage opportunity detection
+	const fee = 0.0025
+	return math.Abs(delta) > 3*fee
 }
 
 func index(symbol string, syms []string) int {
