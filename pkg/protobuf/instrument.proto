@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sigma;
+
+option go_package = "github.com/peetermeos/tabot";
+
+
+message Position {
+  uint64 instrumentID = 1;
+  double avgPrice = 2;
+  double pnl = 3;
+  uint64 snapshotID = 4;
+  uint64 portfolioID = 5;
+}

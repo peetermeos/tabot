@@ -23,6 +23,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	logLevel, _ := logrus.ParseLevel(cfg.LogLevel)
+	logrus.SetLevel(logLevel)
+
 	krakenClient := kraken.NewClient(ctx, tabotLogger, cfg.KrakenKey, cfg.KrakenSecret)
 	mockPortfolio := mock.NewPortfolio(10000, "USD", 0.0025)
 

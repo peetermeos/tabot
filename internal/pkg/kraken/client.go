@@ -49,6 +49,27 @@ type level1RequestParams struct {
 	Symbol  []string `json:"symbol"`
 }
 
+// level1Response is the L1 exchange rate response from Kraken.
+// Sample:
+//
+//	 {
+//			"channel":"ticker",
+//			"type":"snapshot",
+//			"data":[{
+//				"symbol":"BTC/GBP",
+//				"bid":53975.7,
+//				"bid_qty":0.00282754,
+//				"ask":53975.8,
+//				"ask_qty":2.79487918,
+//				"last":53975.7,
+//				"volume":53.42371402,
+//				"vwap":53299.8,
+//				"low":52499.9,
+//				"high":54357.1,
+//				"change":1095.7,
+//				"change_pct":2.07,
+//			}]
+//		}
 type level1Response struct {
 	Channel string `json:"channel"`
 	Type    string `json:"type"`
@@ -96,6 +117,10 @@ func NewClient(ctx context.Context, logger logrus.FieldLogger, apiKey string, ap
 	return c
 }
 
+// Stream returns a channel of ticks from the Kraken websocket.
+// Sample response for BTC/GBP:
+//
+//	ask=53975.8 base=GBP bid=53975.7 instrument=BTC
 func (c *Client) Stream(ctx context.Context) <-chan service.Tick {
 	tickCh := make(chan service.Tick)
 
