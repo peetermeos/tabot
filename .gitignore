@@ -19,5 +19,10 @@
 
 .idea
 
+terraform/init*sh
+terraform/.terraform*
+
+build/app
+
 # Go workspace file
 go.work

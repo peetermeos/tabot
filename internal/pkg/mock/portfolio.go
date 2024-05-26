@@ -2,6 +2,7 @@ package mock
 
 import (
 	"context"
+
 	"github.com/peetermeos/tabot/internal/app/service"
 )
 

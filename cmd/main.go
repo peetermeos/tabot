@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
-	"github.com/peetermeos/tabot/internal/pkg/mock"
 	"os"
 	"strings"
 
+	_ "github.com/breml/rootcerts"
 	"github.com/peetermeos/tabot/config"
 	"github.com/peetermeos/tabot/internal/app/service"
 	"github.com/peetermeos/tabot/internal/pkg/kraken"
+	"github.com/peetermeos/tabot/internal/pkg/mock"
 	"github.com/sirupsen/logrus"
 )
 
