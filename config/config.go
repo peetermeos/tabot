@@ -13,6 +13,7 @@ type Config struct {
 	KrakenKey    string `env:"KRAKEN_API_KEY"`
 	KrakenSecret string `env:"KRAKEN_API_SECRET"`
 	Symbols      string `env:"SYMBOLS"`
+	Symbol       string `env:"SYMBOL"`
 }
 
 var ErrFieldNotDefined = errors.New("environment variable name tag for field is not defined")

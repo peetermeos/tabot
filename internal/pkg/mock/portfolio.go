@@ -3,7 +3,7 @@ package mock
 import (
 	"context"
 
-	"github.com/peetermeos/tabot/internal/app/service"
+	"github.com/peetermeos/tabot/internal/app/tabot"
 )
 
 type Portfolio struct {
@@ -22,7 +22,7 @@ func NewPortfolio(capital float64, base string, fee float64) *Portfolio {
 	return &p
 }
 
-func (p *Portfolio) Execute(_ context.Context, input service.ExecutionInput) error {
+func (p *Portfolio) Execute(_ context.Context, input tabot.ExecutionInput) error {
 	_, exists := p.capital[input.Base]
 	if !exists {
 		p.capital[input.Base] = 0

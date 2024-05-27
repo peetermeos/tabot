@@ -7,7 +7,7 @@ import (
 
 	_ "github.com/breml/rootcerts"
 	"github.com/peetermeos/tabot/config"
-	"github.com/peetermeos/tabot/internal/app/service"
+	"github.com/peetermeos/tabot/internal/app/tabot"
 	"github.com/peetermeos/tabot/internal/pkg/kraken"
 	"github.com/peetermeos/tabot/internal/pkg/mock"
 	"github.com/sirupsen/logrus"
@@ -30,14 +30,14 @@ func main() {
 	krakenClient := kraken.NewClient(ctx, tabotLogger, cfg.KrakenKey, cfg.KrakenSecret)
 	mockPortfolio := mock.NewPortfolio(10000, "USD", 0.0025)
 
-	botInput := service.BotInput{
+	botInput := tabot.BotInput{
 		Logger:     tabotLogger,
 		MarketData: krakenClient,
 		Execution:  mockPortfolio,
 		Symbols:    strings.Split(cfg.Symbols, ","),
 	}
 
-	tabot := service.NewTriangleBot(botInput)
+	app := tabot.NewTriangleBot(botInput)
 
-	tabot.Run(ctx)
+	app.Run(ctx)
 }

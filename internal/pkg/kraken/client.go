@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/peetermeos/tabot/internal/app/prebot"
 	"io"
 	"net/http"
 	"net/url"
@@ -15,7 +16,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/peetermeos/tabot/internal/app/service"
+	"github.com/peetermeos/tabot/internal/app/tabot"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -39,12 +40,12 @@ type authResponse struct {
 	} `json:"result"`
 }
 
-type level1Request struct {
-	Method string              `json:"method"`
-	Params level1RequestParams `json:"params"`
+type websocketRequest struct {
+	Method string                 `json:"method"`
+	Params websocketRequestParams `json:"params"`
 }
 
-type level1RequestParams struct {
+type websocketRequestParams struct {
 	Channel string   `json:"channel"`
 	Symbol  []string `json:"symbol"`
 }
@@ -74,19 +75,27 @@ type level1Response struct {
 	Channel string `json:"channel"`
 	Type    string `json:"type"`
 	Data    []struct {
-		Symbol    string  `json:"symbol"`
-		Bid       float64 `json:"bid"`
-		BidQty    float64 `json:"bid_qty"`
-		Ask       float64 `json:"ask"`
-		AskQty    float64 `json:"ask_qty"`
-		Last      float64 `json:"last"`
-		Volume    float64 `json:"volume"`
-		Vwap      float64 `json:"vwap"`
-		Low       float64 `json:"low"`
-		High      float64 `json:"high"`
-		Change    float64 `json:"change"`
-		ChangePct float64 `json:"change_pct"`
+		Symbol    string       `json:"symbol"`
+		Bid       float64      `json:"bid"`
+		BidQty    float64      `json:"bid_qty"`
+		Ask       float64      `json:"ask"`
+		AskQty    float64      `json:"ask_qty"`
+		Last      float64      `json:"last"`
+		Volume    float64      `json:"volume"`
+		Vwap      float64      `json:"vwap"`
+		Low       float64      `json:"low"`
+		High      float64      `json:"high"`
+		Change    float64      `json:"change"`
+		ChangePct float64      `json:"change_pct"`
+		Bids      []Level2Book `json:"bids"`
+		Asks      []Level2Book `json:"asks"`
+		Timestamp time.Time    `json:"timestamp"`
 	} `json:"data"`
+}
+
+type Level2Book struct {
+	Price float64 `json:"price"`
+	Qty   float64 `json:"qty"`
 }
 
 type Client struct {
@@ -121,8 +130,8 @@ func NewClient(ctx context.Context, logger logrus.FieldLogger, apiKey string, ap
 // Sample response for BTC/GBP:
 //
 //	ask=53975.8 base=GBP bid=53975.7 instrument=BTC
-func (c *Client) Stream(ctx context.Context) <-chan service.Tick {
-	tickCh := make(chan service.Tick)
+func (c *Client) Stream(ctx context.Context) <-chan tabot.Tick {
+	tickCh := make(chan tabot.Tick)
 
 	go func() {
 		defer close(tickCh)
@@ -163,7 +172,7 @@ func (c *Client) Stream(ctx context.Context) <-chan service.Tick {
 
 			if unmarshalled.Channel == "ticker" {
 				for _, data := range unmarshalled.Data {
-					tickCh <- service.Tick{
+					tickCh <- tabot.Tick{
 						Symbol: data.Symbol,
 						Bid:    data.Bid,
 						BidQty: data.BidQty,
@@ -197,9 +206,9 @@ func (c *Client) Subscribe(symbol string) error {
 		}
 	}
 
-	req := level1Request{
+	req := websocketRequest{
 		Method: "subscribe",
-		Params: level1RequestParams{
+		Params: websocketRequestParams{
 			Channel: "ticker",
 			Symbol:  []string{symbol},
 		},
@@ -219,6 +228,123 @@ func (c *Client) Subscribe(symbol string) error {
 }
 
 func (c *Client) Unsubscribe(_ string) error {
+	return nil
+}
+
+func (c *Client) StreamBook(ctx context.Context) <-chan prebot.Book {
+	bookCh := make(chan prebot.Book)
+
+	go func() {
+		defer close(bookCh)
+
+		if c.conn == nil {
+			err := c.connect(ctx)
+			if err != nil {
+				c.logger.WithError(err).Error("error connecting")
+
+				return
+			}
+		}
+
+		for {
+			_, payload, err := c.conn.ReadMessage()
+			if err != nil {
+				c.logger.WithError(err).Error("error reading message from websocket")
+
+				return
+			}
+
+			c.logger.WithFields(logrus.Fields{
+				"action":  "read_message",
+				"payload": string(payload),
+			}).Debug("received message")
+
+			var unmarshalled level1Response
+
+			err = json.Unmarshal(payload, &unmarshalled)
+			if err != nil {
+				c.logger.WithFields(logrus.Fields{
+					"action":  "unmarshal_message",
+					"payload": string(payload),
+				}).WithError(err).Error("error unmarshalling message")
+
+				continue
+			}
+
+			if unmarshalled.Channel == "book" {
+				item := prebot.Book{}
+
+				if unmarshalled.Type == "update" {
+					item.IsUpdate = true
+				}
+
+				for _, data := range unmarshalled.Data {
+					item.Symbol = data.Symbol
+
+					for _, bid := range data.Bids {
+						item.Bids = append(item.Bids, prebot.Level2Book{
+							Price:  bid.Price,
+							Volume: bid.Qty,
+						})
+					}
+
+					for _, ask := range data.Asks {
+						item.Asks = append(item.Asks, prebot.Level2Book{
+							Price:  ask.Price,
+							Volume: ask.Qty,
+						})
+					}
+
+					bookCh <- item
+				}
+			}
+
+			select {
+			case <-ctx.Done():
+				err = c.conn.Close()
+				if err != nil {
+					c.logger.WithError(err).Error("error closing websocket connection")
+				}
+
+				return
+			default:
+			}
+		}
+	}()
+
+	return bookCh
+}
+
+func (c *Client) SubscribeBook(symbol string) error {
+	if c.conn == nil {
+		err := c.connect(context.Background())
+		if err != nil {
+			return errors.Wrap(err, "error connecting")
+		}
+	}
+
+	req := websocketRequest{
+		Method: "subscribe",
+		Params: websocketRequestParams{
+			Channel: "book",
+			Symbol:  []string{symbol},
+		},
+	}
+
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return errors.Wrap(err, "error marshalling request")
+	}
+
+	err = c.conn.WriteMessage(websocket.TextMessage, reqBody)
+	if err != nil {
+		return errors.Wrap(err, "error writing message to websocket")
+	}
+
+	return nil
+}
+
+func (c *Client) UnsubscribeBook(_ string) error {
 	return nil
 }
 
