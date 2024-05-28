@@ -14,6 +14,11 @@ docker-tabot:
 	CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -a -installsuffix cgo -tags timetzdata -o build/app cmd/tabot/main.go
 	docker build -t tabot -f build/Dockerfile --platform linux/amd64 .
 
+docker-prebot:
+	CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -a -installsuffix cgo -tags timetzdata -o build/app cmd/prebot/main.go
+	docker build -t prebot -f build/Dockerfile --platform linux/amd64 .
+
 clean:
 	rm -rf build/app
 	docker rmi tabot
+	docker rmi prebot

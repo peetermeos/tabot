@@ -5,12 +5,22 @@ import (
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"math"
+	"sort"
 )
+
+const bookLength = 10
+
+const fee = 0.0025
 
 type MarketDataProvider interface {
 	StreamBook(ctx context.Context) <-chan Book
 	SubscribeBook(symbol string) error
 	UnsubscribeBook(symbol string) error
+}
+
+type ExecutionProvider interface {
+	Execute(ctx context.Context, input ExecutionInput) error
+	TotalCapital() float64
 }
 
 type Book struct {
@@ -26,17 +36,29 @@ type Level2Book struct {
 	Timestamp float64
 }
 
+type ExecutionInput struct {
+	Symbol string
+	Base   string
+	Side   string
+	Rate   float64
+	Qty    float64
+}
+
 type PressureBot struct {
 	logger logrus.FieldLogger
 	data   MarketDataProvider
 	symbol string
 
-	// TODO: add fields for tracking the order book
-	askBook map[float64]float64
-	bidBook map[float64]float64
+	askBook []bookItem
+	bidBook []bookItem
 
 	position float64
 	price    float64
+}
+
+type bookItem struct {
+	price  float64
+	volume float64
 }
 
 type BotInput struct {
@@ -50,8 +72,8 @@ func NewPressureBot(input BotInput) *PressureBot {
 		logger:  input.Logger.WithField("comp", "prebot"),
 		data:    input.MarketData,
 		symbol:  input.Symbol,
-		askBook: make(map[float64]float64),
-		bidBook: make(map[float64]float64),
+		askBook: make([]bookItem, 0),
+		bidBook: make([]bookItem, 0),
 	}
 }
 
@@ -65,58 +87,74 @@ func (b *PressureBot) Run(ctx context.Context) {
 
 	stream := b.data.StreamBook(ctx)
 
+	pnl := 0.0
+
 	for {
 		select {
 		case book := <-stream:
 			b.logger.WithField("book", fmt.Sprintf("%+v", book)).Debug("received book")
 
 			if !book.IsUpdate {
-				b.askBook = make(map[float64]float64)
-				b.bidBook = make(map[float64]float64)
+				b.askBook = make([]bookItem, 0)
+				b.bidBook = make([]bookItem, 0)
 			}
 
 			for _, bid := range book.Bids {
 				if bid.Volume == 0 {
-					delete(b.bidBook, bid.Price)
+					b.bidBook = removeLevel(b.bidBook, bid.Price)
 
 					continue
 				}
 
-				b.bidBook[bid.Price] = bid.Volume
+				b.bidBook = setVolume(b.bidBook, bid.Price, bid.Volume)
 			}
 
 			for _, ask := range book.Asks {
 				if ask.Volume == 0 {
-					delete(b.askBook, ask.Price)
+					b.askBook = removeLevel(b.askBook, ask.Price)
 
 					continue
 				}
 
-				b.askBook[ask.Price] = ask.Volume
+				b.askBook = setVolume(b.askBook, ask.Price, ask.Volume)
+			}
+
+			if len(b.askBook) > bookLength {
+				// Clean up book, retain lowest 10 elements
+				b.askBook = b.askBook[:bookLength]
+			}
+
+			if len(b.bidBook) > bookLength {
+				// Clean up book, retain top 10 elements
+				b.bidBook = b.bidBook[(len(b.bidBook) - bookLength):]
 			}
 
 			totalBid := 0.0
 			maxBid := 0.0
 
-			for price, volume := range b.bidBook {
-				totalBid += volume
-				maxBid = math.Max(maxBid, price)
+			for _, item := range b.bidBook {
+				totalBid += item.volume
+				maxBid = math.Max(maxBid, item.price)
 			}
 
 			totalAsk := 0.0
 			minAsk := 9999999999.0
 
-			for price, volume := range b.askBook {
-				totalAsk += volume
-				minAsk = math.Min(minAsk, price)
+			for _, item := range b.askBook {
+				totalAsk += item.volume
+				minAsk = math.Min(minAsk, item.price)
 			}
 
-			const threshold = 15
+			const threshold = 30
+
+			const tradeSize = 1000.0
 
 			if totalBid-totalAsk > threshold {
-				if b.position > 0 {
+				if b.position != 0 {
 					continue
 				}
+
+				pnl -= tradeSize * fee
 
 				b.logger.WithFields(logrus.Fields{
 					"total_bid": fmt.Sprintf("%.4f", totalBid),
@@ -124,16 +162,19 @@ func (b *PressureBot) Run(ctx context.Context) {
 					"bid":       maxBid,
 					"ask":       minAsk,
 					"delta":     fmt.Sprintf("%.4f", totalBid-totalAsk),
+					"pnl":       pnl,
 				}).Info("enter long")
 
-				b.position = 1
+				b.position = tradeSize / minAsk
 				b.price = minAsk
 			}
 
 			if totalAsk-totalBid > threshold {
-				if b.position < 0 {
+				if b.position != 0 {
 					continue
 				}
+
+				pnl -= tradeSize * fee
 
 				b.logger.WithFields(logrus.Fields{
 					"total_bid": fmt.Sprintf("%.4f", totalBid),
@@ -141,28 +182,39 @@ func (b *PressureBot) Run(ctx context.Context) {
 					"bid":       maxBid,
 					"ask":       minAsk,
 					"delta":     fmt.Sprintf("%.4f", totalBid-totalAsk),
+					"pnl":       pnl,
 				}).Info("enter short")
 
-				b.position = -1
+				b.position = -tradeSize / maxBid
 				b.price = maxBid
 			}
 
-			if maxBid >= b.price && b.position > 0 {
+			var target = 0.008 * b.price
+
+			if maxBid >= b.price+target && b.position > 0 {
+				pnl += b.position * (maxBid - b.price)
+				pnl -= tradeSize * fee
+
 				b.logger.
 					WithFields(logrus.Fields{
 						"price": b.price,
 						"bid":   maxBid,
+						"pnl":   pnl,
 					}).Info("exit long")
 
 				b.position = 0
 				b.price = 0
 			}
 
-			if minAsk <= b.price && b.position < 0 {
+			if minAsk <= b.price-target && b.position < 0 {
+				pnl += b.position * (b.price - minAsk)
+				pnl -= tradeSize * fee
+
 				b.logger.
 					WithFields(logrus.Fields{
 						"price": b.price,
 						"ask":   minAsk,
+						"pnl":   pnl,
 					}).Info("exit short")
 
 				b.position = 0
@@ -170,10 +222,14 @@ func (b *PressureBot) Run(ctx context.Context) {
 			}
 
 			if minAsk < b.price && b.position > 0 {
+				pnl += b.position * (maxBid - b.price)
+				pnl -= tradeSize * fee
+
 				b.logger.
 					WithFields(logrus.Fields{
 						"price": b.price,
 						"bid":   maxBid,
+						"pnl":   pnl,
 					}).Info("stop loss long")
 
 				b.position = 0
@@ -181,10 +237,14 @@ func (b *PressureBot) Run(ctx context.Context) {
 			}
 
 			if maxBid > b.price && b.position < 0 {
+				pnl += b.position * (b.price - minAsk)
+				pnl -= tradeSize * fee
+
 				b.logger.
 					WithFields(logrus.Fields{
 						"price": b.price,
 						"ask":   minAsk,
+						"pnl":   pnl,
 					}).Info("stop loss short")
 
 				b.position = 0
@@ -197,4 +257,38 @@ func (b *PressureBot) Run(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func setVolume(book []bookItem, price, volume float64) []bookItem {
+	for i, item := range book {
+		if item.price == price {
+			book[i].volume = volume
+
+			return book
+		}
+	}
+
+	book = append(book, bookItem{
+		price:  price,
+		volume: volume,
+	})
+
+	// sort the book by price
+	sort.Slice(book, func(i, j int) bool {
+		return book[i].price < book[j].price
+	})
+
+	return book
+}
+
+func removeLevel(book []bookItem, price float64) []bookItem {
+	for i, item := range book {
+		if item.price == price {
+			book = append(book[:i], book[i+1:]...)
+
+			break
+		}
+	}
+
+	return book
 }
